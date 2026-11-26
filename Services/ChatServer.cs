@@ -132,19 +132,20 @@ namespace YMH219.ChatApp.Services
         private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken token)
         {
             string clientId = Guid.NewGuid().ToString("N")[..8];
-            string remoteEp = tcpClient.Client.RemoteEndPoint?.ToString() ?? "Bilinmeyen";
-
-            NetworkStream stream = tcpClient.GetStream();
-            var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-            var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
-
-            var info = new ConnectedClientInfo(clientId, $"İstemci-{clientId}", remoteEp);
-            var session = new ClientSession(clientId, tcpClient, reader, writer, info);
-            _clients[clientId] = session;
-            NotifyClientsChanged();
+            ClientSession? session = null;
 
             try
             {
+                string remoteEp = tcpClient.Client.RemoteEndPoint?.ToString() ?? "Bilinmeyen";
+                NetworkStream stream = tcpClient.GetStream();
+                var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+
+                var info = new ConnectedClientInfo(clientId, $"İstemci-{clientId}", remoteEp);
+                session = new ClientSession(clientId, tcpClient, reader, writer, info);
+                _clients[clientId] = session;
+                NotifyClientsChanged();
+
                 while (!token.IsCancellationRequested)
                 {
                     string? line = await reader.ReadLineAsync(token).ConfigureAwait(false);
@@ -186,11 +187,19 @@ namespace YMH219.ChatApp.Services
             }
             catch (Exception ex)
             {
-                ServerStatusChanged?.Invoke(this, new NetworkStatusEventArgs($"İstemci hatası ({session.Info.Username}): {ex.Message}", isError: true));
+                string name = session?.Info.Username ?? clientId;
+                ServerStatusChanged?.Invoke(this, new NetworkStatusEventArgs($"İstemci hatası ({name}): {ex.Message}", isError: true));
             }
             finally
             {
-                RemoveClient(clientId, notifyLeave: IsRunning);
+                if (session != null)
+                {
+                    RemoveClient(clientId, notifyLeave: IsRunning);
+                }
+                else
+                {
+                    try { tcpClient.Close(); } catch { }
+                }
             }
         }
 

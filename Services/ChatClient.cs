@@ -56,7 +56,8 @@ namespace YMH219.ChatApp.Services
 
             try
             {
-                await _tcpClient.ConnectAsync(ipAddress.Trim(), port).ConfigureAwait(false);
+                using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _tcpClient.ConnectAsync(ipAddress.Trim(), port, connectTimeout.Token).ConfigureAwait(false);
                 NetworkStream stream = _tcpClient.GetStream();
                 _reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
                 _writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
@@ -69,6 +70,11 @@ namespace YMH219.ChatApp.Services
                     new NetworkStatusEventArgs($"Sunucuya bağlanıldı ({ipAddress}:{port}) - Kullanıcı: {_username}"));
 
                 _ = ReceiveLoopAsync(_cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                CleanupConnection();
+                throw new TimeoutException("Sunucuya bağlanma isteği zaman aşımına uğradı (5 saniye).");
             }
             catch
             {
